@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global Election Tracker</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #0a0e27;
+            color: #fff;
+        }
+
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        #map {
+            height: 70vh;
+            width: 100%;
+            margin: 20px 0;
+        }
+
+        .legend {
+            background: rgba(255,255,255,0.1);
+            padding: 20px;
+            margin: 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+        }
+
+        .legend-item {
+            display: inline-block;
+            margin: 10px 20px;
+        }
+
+        .legend-color {
+            display: inline-block;
+            width: 30px;
+            height: 20px;
+            margin-right: 8px;
+            border-radius: 4px;
+            vertical-align: middle;
+        }
+
+        .info-panel {
+            background: rgba(255,255,255,0.95);
+            color: #333;
+            padding: 20px;
+            border-radius: 10px;
+            max-width: 400px;
+            margin: 20px;
+        }
+
+        .info-panel h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.8em;
+        }
+
+        .info-row {
+            margin: 10px 0;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .info-label {
+            font-weight: bold;
+            color: #666;
+            display: inline-block;
+            width: 140px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            font-size: 1.5em;
+        }
+
+        footer {
+            text-align: center;
+            padding: 30px;
+            background: rgba(0,0,0,0.3);
+            margin-top: 40px;
+        }
+
+        .update-time {
+            opacity: 0.7;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🗳️ Global Election Tracker</h1>
+        <p class="subtitle">Real-time monitoring of elections worldwide</p>
+    </header>
+
+    <div class="loading" id="loading">Loading election data...</div>
+    
+    <div id="map"></div>
+
+    <div class="legend">
+        <h3 style="margin-bottom: 15px;">🎨 Democracy Score Legend</h3>
+        <div class="legend-item">
+            <span class="legend-color" style="background: #1a5490;"></span>
+            <span>Full Democracy (8-10)</span>
+        </div>
+        <div class="legend-item">
+            <span class="legend-color" style="background: #45b7d1;"></span>
+            <span>Flawed Democracy (6-8)</span>
+        </div>
+        <div class="legend-item">
+            <span class="legend-color" style="background: #f39c12;"></span>
+            <span>Hybrid Regime (4-6)</span>
+        </div>
+        <div class="legend-item">
+            <span class="legend-color" style="background: #c0392b;"></span>
+            <span>Authoritarian (0-4)</span>
+        </div>
+    </div>
+
+    <footer>
+        <p>Data updates automatically from Google Sheets</p>
+        <p class="update-time">Last updated: <span id="lastUpdate"></span></p>
+    </footer>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // PASTE YOUR GOOGLE SHEET ID HERE
+        const SHEET_ID = 'YOUR_SHEET_ID_HERE';
+        const SHEET_NAME = 'Sheet1';
+        
+        let map;
+        let electionData = {};
+
+        // Initialize map
+        function initMap() {
+            map = L.map('map').setView([20, 0], 2);
+            
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '© OpenStreetMap contributors © CARTO',
+                maxZoom: 19
+            }).addTo(map);
+        }
+
+        // Get color based on democracy score
+        function getColor(score) {
+            return score >= 8 ? '#1a5490' :
+                   score >= 6 ? '#45b7d1' :
+                   score >= 4 ? '#f39c12' :
+                                '#c0392b';
+        }
+
+        // Load data from Google Sheets
+        async function loadElectionData() {
+            try {
+                const url = `https://docs.google.com/spreadsheets/d/${RRZjtMppzS0KLYW2IbsvrfqLeNavqYEhxl-fyQqtOhI}/gviz/tq?tqx=out:json&sheet=${SHEET_NAME}`;
+                const response = await fetch(url);
+                const text = await response.text();
+                const json = JSON.parse(text.substr(47).slice(0, -2));
+                
+                json.table.rows.forEach(row => {
+                    const country = row.c[0]?.v;
+                    const isoCode = row.c[1]?.v;
+                    if (country && isoCode) {
+                        electionData[isoCode] = {
+                            country: country,
+                            governmentType: row.c[2]?.v || 'N/A',
+                            nextElection: row.c[3]?.v || 'TBD',
+                            daysUntil: row.c[4]?.v || 'N/A',
+                            leaderName: row.c[5]?.v || 'N/A',
+                            leaderTitle: row.c[6]?.v || 'N/A',
+                            leaderParty: row.c[7]?.v || 'N/A',
+                            shortBio: row.c[8]?.v || 'No information available',
+                            democracyScore: parseFloat(row.c[9]?.v) || 5
+                        };
+                    }
+                });
+
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('lastUpdate').textContent = new Date().toLocaleString();
+                loadCountries();
+            } catch (error) {
+                console.error('Error loading data:', error);
+                document.getElementById('loading').innerHTML = '❌ Error loading data. Check console for details.';
+            }
+        }
+
+        // Load country boundaries and add to map
+        async function loadCountries() {
+            try {
+                const response = await fetch('https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json');
+                const geoData = await response.json();
+
+                L.geoJSON(geoData, {
+                    style: function(feature) {
+                        const isoCode = feature.id;
+                        const data = electionData[isoCode];
+                        return {
+                            fillColor: data ? getColor(data.democracyScore) : '#666',
+                            weight: 1,
+                            opacity: 1,
+                            color: 'white',
+                            fillOpacity: 0.7
+                        };
+                    },
+                    onEachFeature: function(feature, layer) {
+                        const isoCode = feature.id;
+                        const data = electionData[isoCode];
+                        
+                        if (data) {
+                            layer.on('click', function() {
+                                const popup = `
+                                    <div class="info-panel">
+                                        <h3>${data.country}</h3>
+                                        <div class="info-row">
+                                            <span class="info-label">🏛️ Government:</span>
+                                            ${data.governmentType}
+                                        </div>
+                                        <div class="info-row">
+                                            <span class="info-label">📊 Democracy Score:</span>
+                                            ${data.democracyScore}/10
+                                        </div>
+                                        <div class="info-row">
+                                            <span class="info-label">📅 Next Election:</span>
+                                            ${data.nextElection}
+                                        </div>
+                                        <div class="info-row">
+                                            <span class="info-label">⏳ Days Until:</span>
+                                            ${data.daysUntil}
+                                        </div>
+                                        <div class="info-row">
+                                            <span class="info-label">👤 Leader:</span>
+                                            ${data.leaderName}
+                                        </div>
+                                        <div class="info-row">
+                                            <span class="info-label">📋 Title:</span>
+                                            ${data.leaderTitle}
+                                        </div>
+                                        <div class="info-row">
+                                            <span class="info-label">🎭 Party:</span>
+                                            ${data.leaderParty}
+                                        </div>
+                                        <div class="info-row" style="border:none; padding-top: 15px;">
+                                            <strong>📝 Bio:</strong><br>
+                                            ${data.shortBio}
+                                        </div>
+                                    </div>
+                                `;
+                                layer.bindPopup(popup, {maxWidth: 400}).openPopup();
+                            });
+
+                            layer.on('mouseover', function() {
+                                layer.setStyle({ fillOpacity: 0.9, weight: 2 });
+                            });
+
+                            layer.on('mouseout', function() {
+                                layer.setStyle({ fillOpacity: 0.7, weight: 1 });
+                            });
+                        }
+                    }
+                }).addTo(map);
+
+            } catch (error) {
+                console.error('Error loading countries:', error);
+            }
+        }
+
+        // Initialize everything
+        initMap();
+        loadElectionData();
+    </script>
+</body>
+</html>
